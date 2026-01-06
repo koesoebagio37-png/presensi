@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Absensi Siswa</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .view-section { display: none; }
+        .view-section.active { display: flex; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen">
+
+    <div id="loading-screen" class="fixed inset-0 bg-white z-50 flex items-center justify-center">
+        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+    </div>
+
+    <!-- 1. LOGIN / INPUT NIS -->
+    <div id="view-login" class="view-section flex-col items-center justify-center min-h-screen p-4">
+        <div class="w-full max-w-md bg-white rounded-2xl shadow-xl p-8">
+            <div class="text-center mb-6">
+                <i class="ph ph-student text-5xl text-blue-600 mb-2"></i>
+                <h2 class="text-2xl font-bold text-slate-800">Presensi Siswa</h2>
+                <p class="text-slate-500">Masukkan NIS untuk masuk.</p>
+            </div>
+            <form onsubmit="studentApp.saveNis(event)" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Nomor Induk Siswa</label>
+                    <input type="text" id="input-nis" placeholder="Contoh: 2425.10.001"
+                        class="w-full text-center text-2xl font-mono tracking-wider p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                </div>
+                <button type="submit" class="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 transition">Masuk</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- 2. MAIN DASHBOARD -->
+    <div id="view-main" class="view-section flex-col min-h-screen bg-slate-100 p-4">
+        <div class="max-w-md mx-auto w-full space-y-6">
+            <div class="bg-white p-4 rounded-2xl shadow-sm flex justify-between items-center">
+                <div>
+                    <p class="text-xs font-bold text-slate-400 uppercase">Login Sebagai</p>
+                    <h2 id="display-nis" class="text-xl font-bold font-mono text-slate-800">...</h2>
+                    <p id="display-name" class="text-sm text-blue-600 font-bold mt-1">...</p>
+                </div>
+                <button onclick="studentApp.logout()" class="p-2 bg-red-50 text-red-500 rounded-full hover:bg-red-100" title="Ganti NIS"><i class="ph ph-sign-out text-lg"></i></button>
+            </div>
+            <div id="content-area"></div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js';
+        import { getAuth, signInAnonymously, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js';
+        import { getFirestore, doc, setDoc, getDoc, serverTimestamp } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyBc-QjHvBNyYkeh9h06efRdfQPaV4hcbTo",
+            authDomain: "aplikasi-ujian-online-6c61c.firebaseapp.com",
+            projectId: "aplikasi-ujian-online-6c61c",
+            storageBucket: "aplikasi-ujian-online-6c61c.firebasestorage.app",
+            messagingSenderId: "850428764297",
+            appId: "1:850428764297:web:d93a1e8396307cb1372658"
+        };
+        const appId = 'presensi-sekolah-khusus';
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        class StudentApp {
+            constructor() {
+                this.nis = localStorage.getItem('student_nis') || '';
+                this.user = null;
+                onAuthStateChanged(auth, (user) => {
+                    if (!user) {
+                        signInAnonymously(auth).catch(e => alert("Gagal koneksi: " + e.message));
+                    } else {
+                        this.user = user;
+                        document.getElementById('loading-screen').style.display = 'none';
+                        if (this.nis) this.route();
+                        else this.showView('view-login');
+                    }
+                });
+            }
+
+            route() {
+                if (this.nis) {
+                    this.showView('view-main');
+                    this.renderMain();
+                } else {
+                    this.showView('view-login');
+                }
+            }
+
+            showView(id) {
+                document.querySelectorAll('.view-section').forEach(el => el.classList.remove('active'));
+                document.getElementById(id).classList.add('active');
+            }
+
+            formatNIS(input) { return input.replace(/\D/g, ''); }
+            displayNIS(cleanNIS) {
+                if (!cleanNIS || cleanNIS.length < 8) return cleanNIS;
+                return `${cleanNIS.slice(0, 4)}.${cleanNIS.slice(4, 6)}.${cleanNIS.slice(6)}`;
+            }
+
+            saveNis(e) {
+                e.preventDefault();
+                const input = document.getElementById('input-nis').value;
+                const clean = this.formatNIS(input);
+                if (clean.length < 4) { alert("NIS tidak valid"); return; }
+                localStorage.setItem('student_nis', clean);
+                this.nis = clean;
+                this.route();
+            }
+
+            logout() {
+                if(confirm('Ganti NIS?')) {
+                    localStorage.removeItem('student_nis');
+                    this.nis = '';
+                    this.showView('view-login');
+                }
+            }
+
+            async renderMain() {
+                document.getElementById('display-nis').innerText = this.displayNIS(this.nis);
+                const container = document.getElementById('content-area');
+                container.innerHTML = `<div class="text-center p-8"><div class="animate-spin inline-block w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full"></div></div>`;
+
+                // Cek Nama Siswa di DB
+                try {
+                    const studentRef = doc(db, 'artifacts', appId, 'public', 'data', 'students', this.nis);
+                    const studentSnap = await getDoc(studentRef);
+                    if(studentSnap.exists()) {
+                        document.getElementById('display-name').innerText = studentSnap.data().name;
+                    } else {
+                        document.getElementById('display-name').innerText = "Siswa Belum Terdaftar";
+                    }
+                } catch(e) { console.log("Gagal ambil nama", e); }
+
+                const today = new Date().toISOString().split('T')[0];
+                const docId = `${today}_${this.nis}`;
+
+                try {
+                    const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'attendance', docId);
+                    const docSnap = await getDoc(docRef);
+
+                    if (docSnap.exists()) {
+                        const data = docSnap.data();
+                        const color = data.status === 'Terlambat' ? 'bg-orange-500' : 'bg-emerald-500';
+                        container.innerHTML = `
+                            <div class="p-6 rounded-2xl shadow-lg text-white text-center ${color} animate-in fade-in zoom-in duration-500">
+                                <div class="flex justify-center mb-4"><i class="ph ph-check-circle text-6xl"></i></div>
+                                <h3 class="text-2xl font-bold mb-1">Sudah Presensi!</h3>
+                                <div class="bg-white/20 rounded-lg p-2 mt-4 inline-block px-4"><p class="font-bold uppercase tracking-wider text-sm">${data.status}</p></div>
+                                <p class="text-sm mt-4 opacity-75">${new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'})}</p>
+                            </div>
+                        `;
+                    } else {
+                        container.innerHTML = `
+                            <div class="bg-white p-8 rounded-2xl shadow-lg">
+                                <div class="text-center mb-6">
+                                    <i class="ph ph-qr-code text-5xl text-blue-600 mb-2"></i>
+                                    <h3 class="text-xl font-bold text-slate-800">Input Token</h3>
+                                    <p class="text-sm text-slate-500">Lihat Layar Piket</p>
+                                </div>
+                                <form onsubmit="studentApp.checkIn(event)" class="space-y-4">
+                                    <input type="tel" id="token-input" maxlength="4" placeholder="0000" class="w-full text-center text-4xl font-bold font-mono tracking-[0.5em] p-4 border-2 border-slate-200 rounded-xl focus:border-blue-500 outline-none transition-colors" autocomplete="off">
+                                    <button type="submit" id="btn-checkin" class="w-full bg-blue-600 text-white py-4 rounded-xl font-bold text-lg hover:bg-blue-700 shadow-lg shadow-blue-200 transition active:scale-95">CHECK IN</button>
+                                    <div id="msg-box" class="hidden p-3 rounded-lg text-center text-sm font-medium"></div>
+                                </form>
+                            </div>
+                        `;
+                        setTimeout(() => document.getElementById('token-input')?.focus(), 100);
+                    }
+                } catch (e) {
+                    console.error(e);
+                    container.innerHTML = `<div class="text-red-500 text-center p-4 bg-red-50 rounded-lg">Gagal memuat data. Periksa koneksi internet.</div>`;
+                }
+            }
+
+            async checkIn(e) {
+                e.preventDefault();
+                const tokenVal = document.getElementById('token-input').value;
+                const btn = document.getElementById('btn-checkin');
+                const msgBox = document.getElementById('msg-box');
+                if (tokenVal.length < 4) return;
+
+                btn.disabled = true;
+                btn.innerHTML = '<i class="ph ph-spinner animate-spin"></i> Memproses...';
+                msgBox.className = 'hidden';
+
+                try {
+                    // Ambil config session untuk Token & Threshold
+                    const configRef = doc(db, 'artifacts', appId, 'public', 'data', 'config', 'session');
+                    const configSnap = await getDoc(configRef);
+                    if (!configSnap.exists()) throw new Error("Sistem Piket belum aktif.");
+                    
+                    const { currentToken, lateThreshold } = configSnap.data();
+                    if (tokenVal !== currentToken) throw new Error("Kode Token Salah!");
+
+                    // Logika Waktu Dinamis berdasarkan setting Admin
+                    const now = new Date();
+                    const threshold = lateThreshold || "07:00"; // Default jika admin belum set
+                    const [thHour, thMin] = threshold.split(':').map(Number);
+                    
+                    const limitTime = new Date(now);
+                    limitTime.setHours(thHour, thMin, 0, 0);
+
+                    const status = now > limitTime ? 'Terlambat' : 'Tepat Waktu';
+                    const today = new Date().toISOString().split('T')[0];
+                    const docId = `${today}_${this.nis}`;
+
+                    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'attendance', docId), {
+                        nis: this.nis,
+                        timestamp: serverTimestamp(),
+                        status: status,
+                        device: navigator.userAgent
+                    });
+
+                    msgBox.innerText = "Berhasil!";
+                    msgBox.className = "p-3 bg-green-50 text-green-600 rounded-lg block";
+                    setTimeout(() => this.renderMain(), 1000);
+                } catch (err) {
+                    msgBox.innerText = err.message;
+                    msgBox.className = "p-3 bg-red-50 text-red-600 rounded-lg block animate-pulse";
+                    btn.disabled = false;
+                    btn.innerText = 'CHECK IN';
+                }
+            }
+        }
+        window.studentApp = new StudentApp();
+
+        const nisInput = document.getElementById('input-nis');
+        if(nisInput) { nisInput.addEventListener('input', (e) => { e.target.value = e.target.value.replace(/[^0-9.]/g, ''); }); }
+    </script>
+</body>
+</html>
