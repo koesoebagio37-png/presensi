@@ -6,16 +6,39 @@
     <title>Absensi Siswa</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    
+    <!-- Library QR Scanner -->
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+
     <style>
         body { font-family: 'Inter', sans-serif; }
         .view-section { display: none; }
         .view-section.active { display: flex; }
+        
+        /* Custom Style untuk Scanner agar rapi */
+        #reader { border: none !important; }
+        #reader video { object-fit: cover; border-radius: 12px; }
+        #reader__scan_region { background: rgba(0,0,0,0.1); }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen">
 
     <div id="loading-screen" class="fixed inset-0 bg-white z-50 flex items-center justify-center">
         <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+    </div>
+
+    <!-- MODAL SCANNER -->
+    <div id="modal-scanner" class="hidden fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center p-4">
+        <div class="w-full max-w-md bg-white rounded-2xl overflow-hidden relative">
+            <button onclick="studentApp.stopScanner()" class="absolute top-4 right-4 z-10 bg-white/20 text-white p-2 rounded-full backdrop-blur-sm">
+                <i class="ph ph-x text-2xl"></i>
+            </button>
+            <div id="reader" class="w-full h-full min-h-[300px] bg-black"></div>
+            <div class="p-4 text-center bg-white">
+                <p class="font-bold text-slate-800">Arahkan kamera ke Layar Piket</p>
+                <p class="text-xs text-slate-500">Otomatis memindai...</p>
+            </div>
+        </div>
     </div>
 
     <!-- 1. LOGIN / INPUT NIS -->
@@ -75,6 +98,9 @@
             constructor() {
                 this.nis = localStorage.getItem('student_nis') || '';
                 this.user = null;
+                this.html5QrcodeScanner = null;
+                this.isScanning = false;
+
                 onAuthStateChanged(auth, (user) => {
                     if (!user) {
                         signInAnonymously(auth).catch(e => alert("Gagal koneksi: " + e.message));
@@ -130,7 +156,7 @@
                 const container = document.getElementById('content-area');
                 container.innerHTML = `<div class="text-center p-8"><div class="animate-spin inline-block w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full"></div></div>`;
 
-                // Cek Nama Siswa di DB
+                // Cek Nama Siswa
                 try {
                     const studentRef = doc(db, 'artifacts', appId, 'public', 'data', 'students', this.nis);
                     const studentSnap = await getDoc(studentRef);
@@ -141,6 +167,7 @@
                     }
                 } catch(e) { console.log("Gagal ambil nama", e); }
 
+                // Cek Status Absen Hari Ini
                 const today = new Date().toISOString().split('T')[0];
                 const docId = `${today}_${this.nis}`;
 
@@ -151,29 +178,41 @@
                     if (docSnap.exists()) {
                         const data = docSnap.data();
                         const color = data.status === 'Terlambat' ? 'bg-orange-500' : 'bg-emerald-500';
+                        const icon = data.status === 'Terlambat' ? 'ph-warning' : 'ph-check-circle';
+                        
                         container.innerHTML = `
                             <div class="p-6 rounded-2xl shadow-lg text-white text-center ${color} animate-in fade-in zoom-in duration-500">
-                                <div class="flex justify-center mb-4"><i class="ph ph-check-circle text-6xl"></i></div>
+                                <div class="flex justify-center mb-4"><i class="ph ${icon} text-6xl"></i></div>
                                 <h3 class="text-2xl font-bold mb-1">Sudah Presensi!</h3>
                                 <div class="bg-white/20 rounded-lg p-2 mt-4 inline-block px-4"><p class="font-bold uppercase tracking-wider text-sm">${data.status}</p></div>
                                 <p class="text-sm mt-4 opacity-75">${new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'})}</p>
                             </div>
                         `;
                     } else {
+                        // TAMPILAN INPUT TOKEN & TOMBOL SCAN
                         container.innerHTML = `
-                            <div class="bg-white p-8 rounded-2xl shadow-lg">
-                                <div class="text-center mb-6">
-                                    <i class="ph ph-qr-code text-5xl text-blue-600 mb-2"></i>
+                            <div class="bg-white p-6 rounded-2xl shadow-lg">
+                                <div class="text-center mb-4">
                                     <h3 class="text-xl font-bold text-slate-800">Input Token</h3>
-                                    <p class="text-sm text-slate-500">Lihat Layar Piket</p>
+                                    <p class="text-xs text-slate-500">Masukkan 4 digit atau Scan QR</p>
                                 </div>
+                                
                                 <form onsubmit="studentApp.checkIn(event)" class="space-y-4">
                                     <input type="tel" id="token-input" maxlength="4" placeholder="0000" class="w-full text-center text-4xl font-bold font-mono tracking-[0.5em] p-4 border-2 border-slate-200 rounded-xl focus:border-blue-500 outline-none transition-colors" autocomplete="off">
-                                    <button type="submit" id="btn-checkin" class="w-full bg-blue-600 text-white py-4 rounded-xl font-bold text-lg hover:bg-blue-700 shadow-lg shadow-blue-200 transition active:scale-95">CHECK IN</button>
+                                    
+                                    <div class="grid grid-cols-2 gap-3">
+                                        <button type="button" onclick="studentApp.startScanner()" class="flex items-center justify-center gap-2 bg-slate-800 text-white py-3 rounded-xl font-bold hover:bg-slate-900 transition">
+                                            <i class="ph ph-qr-code text-xl"></i> Scan QR
+                                        </button>
+                                        <button type="submit" id="btn-checkin" class="bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 shadow-lg shadow-blue-200 transition active:scale-95">
+                                            CHECK IN
+                                        </button>
+                                    </div>
                                     <div id="msg-box" class="hidden p-3 rounded-lg text-center text-sm font-medium"></div>
                                 </form>
                             </div>
                         `;
+                        // Auto focus
                         setTimeout(() => document.getElementById('token-input')?.focus(), 100);
                     }
                 } catch (e) {
@@ -182,29 +221,78 @@
                 }
             }
 
+            // --- SCANNER LOGIC ---
+            startScanner() {
+                const modal = document.getElementById('modal-scanner');
+                modal.classList.remove('hidden');
+
+                // Inisialisasi Scanner jika belum ada
+                if (!this.html5QrcodeScanner) {
+                    this.html5QrcodeScanner = new Html5QrcodeScanner(
+                        "reader", 
+                        { fps: 10, qrbox: { width: 250, height: 250 } },
+                        /* verbose= */ false
+                    );
+                }
+
+                this.html5QrcodeScanner.render(
+                    (decodedText) => this.onScanSuccess(decodedText),
+                    (errorMessage) => { /* ignore errors */ }
+                );
+            }
+
+            stopScanner() {
+                const modal = document.getElementById('modal-scanner');
+                modal.classList.add('hidden');
+                
+                if (this.html5QrcodeScanner) {
+                    this.html5QrcodeScanner.clear().catch(error => {
+                        console.error("Failed to clear scanner", error);
+                    });
+                }
+            }
+
+            onScanSuccess(decodedText) {
+                // Hentikan scanner
+                this.stopScanner();
+                
+                // Isi input dengan hasil scan
+                const tokenInput = document.getElementById('token-input');
+                if (tokenInput) {
+                    tokenInput.value = decodedText;
+                    // Auto Submit
+                    this.checkIn(new Event('submit'));
+                }
+            }
+
+            // --- CHECK IN LOGIC ---
             async checkIn(e) {
                 e.preventDefault();
                 const tokenVal = document.getElementById('token-input').value;
                 const btn = document.getElementById('btn-checkin');
                 const msgBox = document.getElementById('msg-box');
-                if (tokenVal.length < 4) return;
+                
+                if (!tokenVal || tokenVal.length < 4) return;
 
-                btn.disabled = true;
-                btn.innerHTML = '<i class="ph ph-spinner animate-spin"></i> Memproses...';
-                msgBox.className = 'hidden';
+                if (btn) {
+                    btn.disabled = true;
+                    btn.innerHTML = '<i class="ph ph-spinner animate-spin"></i>';
+                }
+                if (msgBox) msgBox.className = 'hidden';
 
                 try {
-                    // Ambil config session untuk Token & Threshold
                     const configRef = doc(db, 'artifacts', appId, 'public', 'data', 'config', 'session');
                     const configSnap = await getDoc(configRef);
                     if (!configSnap.exists()) throw new Error("Sistem Piket belum aktif.");
                     
                     const { currentToken, lateThreshold } = configSnap.data();
-                    if (tokenVal !== currentToken) throw new Error("Kode Token Salah!");
+                    
+                    // Validasi Token
+                    if (tokenVal !== currentToken) throw new Error("Kode Salah / Kedaluwarsa!");
 
-                    // Logika Waktu Dinamis berdasarkan setting Admin
+                    // Logika Waktu Dinamis
                     const now = new Date();
-                    const threshold = lateThreshold || "07:00"; // Default jika admin belum set
+                    const threshold = lateThreshold || "07:00"; 
                     const [thHour, thMin] = threshold.split(':').map(Number);
                     
                     const limitTime = new Date(now);
@@ -221,14 +309,22 @@
                         device: navigator.userAgent
                     });
 
-                    msgBox.innerText = "Berhasil!";
-                    msgBox.className = "p-3 bg-green-50 text-green-600 rounded-lg block";
-                    setTimeout(() => this.renderMain(), 1000);
+                    if (msgBox) {
+                        msgBox.innerText = "Berhasil!";
+                        msgBox.className = "p-3 bg-green-50 text-green-600 rounded-lg block";
+                    }
+                    // Beri delay sedikit agar user lihat pesan sukses sebelum refresh
+                    setTimeout(() => this.renderMain(), 1500);
+
                 } catch (err) {
-                    msgBox.innerText = err.message;
-                    msgBox.className = "p-3 bg-red-50 text-red-600 rounded-lg block animate-pulse";
-                    btn.disabled = false;
-                    btn.innerText = 'CHECK IN';
+                    if (msgBox) {
+                        msgBox.innerText = err.message;
+                        msgBox.className = "p-3 bg-red-50 text-red-600 rounded-lg block animate-pulse";
+                    }
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerText = 'CHECK IN';
+                    }
                 }
             }
         }
