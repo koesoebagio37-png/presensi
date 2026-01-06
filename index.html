@@ -15,10 +15,9 @@
         .view-section { display: none; }
         .view-section.active { display: flex; }
         
-        /* Custom Style untuk Scanner agar rapi */
-        #reader { border: none !important; }
+        /* Custom Style untuk Scanner */
+        #reader { width: 100%; border-radius: 12px; overflow: hidden; }
         #reader video { object-fit: cover; border-radius: 12px; }
-        #reader__scan_region { background: rgba(0,0,0,0.1); }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen">
@@ -30,13 +29,20 @@
     <!-- MODAL SCANNER -->
     <div id="modal-scanner" class="hidden fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center p-4">
         <div class="w-full max-w-md bg-white rounded-2xl overflow-hidden relative">
-            <button onclick="studentApp.stopScanner()" class="absolute top-4 right-4 z-10 bg-white/20 text-white p-2 rounded-full backdrop-blur-sm">
+            <button onclick="studentApp.stopScanner()" class="absolute top-4 right-4 z-10 bg-white/20 text-white p-2 rounded-full backdrop-blur-sm hover:bg-white/30 transition">
                 <i class="ph ph-x text-2xl"></i>
             </button>
-            <div id="reader" class="w-full h-full min-h-[300px] bg-black"></div>
+            <div class="relative bg-black h-[350px] flex items-center justify-center">
+                <div id="reader" class="w-full h-full"></div>
+                <!-- Overlay Loading Kamera -->
+                <div id="camera-loading" class="absolute inset-0 flex flex-col items-center justify-center text-white bg-black/50 z-0">
+                    <i class="ph ph-camera-rotate text-4xl animate-spin mb-2"></i>
+                    <p class="text-sm">Membuka Kamera...</p>
+                </div>
+            </div>
             <div class="p-4 text-center bg-white">
                 <p class="font-bold text-slate-800">Arahkan kamera ke Layar Piket</p>
-                <p class="text-xs text-slate-500">Otomatis memindai...</p>
+                <p class="text-xs text-slate-500">Scanning otomatis...</p>
             </div>
         </div>
     </div>
@@ -98,8 +104,7 @@
             constructor() {
                 this.nis = localStorage.getItem('student_nis') || '';
                 this.user = null;
-                this.html5QrcodeScanner = null;
-                this.isScanning = false;
+                this.html5QrCode = null; // Ganti dari Scanner UI ke Core API
 
                 onAuthStateChanged(auth, (user) => {
                     if (!user) {
@@ -156,7 +161,6 @@
                 const container = document.getElementById('content-area');
                 container.innerHTML = `<div class="text-center p-8"><div class="animate-spin inline-block w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full"></div></div>`;
 
-                // Cek Nama Siswa
                 try {
                     const studentRef = doc(db, 'artifacts', appId, 'public', 'data', 'students', this.nis);
                     const studentSnap = await getDoc(studentRef);
@@ -167,7 +171,6 @@
                     }
                 } catch(e) { console.log("Gagal ambil nama", e); }
 
-                // Cek Status Absen Hari Ini
                 const today = new Date().toISOString().split('T')[0];
                 const docId = `${today}_${this.nis}`;
 
@@ -178,28 +181,23 @@
                     if (docSnap.exists()) {
                         const data = docSnap.data();
                         const color = data.status === 'Terlambat' ? 'bg-orange-500' : 'bg-emerald-500';
-                        const icon = data.status === 'Terlambat' ? 'ph-warning' : 'ph-check-circle';
-                        
                         container.innerHTML = `
                             <div class="p-6 rounded-2xl shadow-lg text-white text-center ${color} animate-in fade-in zoom-in duration-500">
-                                <div class="flex justify-center mb-4"><i class="ph ${icon} text-6xl"></i></div>
+                                <div class="flex justify-center mb-4"><i class="ph ph-check-circle text-6xl"></i></div>
                                 <h3 class="text-2xl font-bold mb-1">Sudah Presensi!</h3>
                                 <div class="bg-white/20 rounded-lg p-2 mt-4 inline-block px-4"><p class="font-bold uppercase tracking-wider text-sm">${data.status}</p></div>
                                 <p class="text-sm mt-4 opacity-75">${new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'})}</p>
                             </div>
                         `;
                     } else {
-                        // TAMPILAN INPUT TOKEN & TOMBOL SCAN
                         container.innerHTML = `
                             <div class="bg-white p-6 rounded-2xl shadow-lg">
                                 <div class="text-center mb-4">
                                     <h3 class="text-xl font-bold text-slate-800">Input Token</h3>
                                     <p class="text-xs text-slate-500">Masukkan 4 digit atau Scan QR</p>
                                 </div>
-                                
                                 <form onsubmit="studentApp.checkIn(event)" class="space-y-4">
                                     <input type="tel" id="token-input" maxlength="4" placeholder="0000" class="w-full text-center text-4xl font-bold font-mono tracking-[0.5em] p-4 border-2 border-slate-200 rounded-xl focus:border-blue-500 outline-none transition-colors" autocomplete="off">
-                                    
                                     <div class="grid grid-cols-2 gap-3">
                                         <button type="button" onclick="studentApp.startScanner()" class="flex items-center justify-center gap-2 bg-slate-800 text-white py-3 rounded-xl font-bold hover:bg-slate-900 transition">
                                             <i class="ph ph-qr-code text-xl"></i> Scan QR
@@ -212,7 +210,6 @@
                                 </form>
                             </div>
                         `;
-                        // Auto focus
                         setTimeout(() => document.getElementById('token-input')?.focus(), 100);
                     }
                 } catch (e) {
@@ -221,42 +218,58 @@
                 }
             }
 
-            // --- SCANNER LOGIC ---
-            startScanner() {
+            // --- SCANNER LOGIC BARU (DIRECT CAMERA) ---
+            async startScanner() {
                 const modal = document.getElementById('modal-scanner');
                 modal.classList.remove('hidden');
-
-                // Inisialisasi Scanner jika belum ada
-                if (!this.html5QrcodeScanner) {
-                    this.html5QrcodeScanner = new Html5QrcodeScanner(
-                        "reader", 
-                        { fps: 10, qrbox: { width: 250, height: 250 } },
-                        /* verbose= */ false
-                    );
+                
+                // Gunakan Html5Qrcode (Core) agar bisa bypass UI permission
+                if (!this.html5QrCode) {
+                    this.html5QrCode = new Html5Qrcode("reader");
                 }
 
-                this.html5QrcodeScanner.render(
-                    (decodedText) => this.onScanSuccess(decodedText),
-                    (errorMessage) => { /* ignore errors */ }
-                );
+                try {
+                    // Start dengan config camera belakang
+                    await this.html5QrCode.start(
+                        { facingMode: "environment" }, 
+                        {
+                            fps: 10,
+                            qrbox: { width: 250, height: 250 },
+                            aspectRatio: 1.0
+                        },
+                        (decodedText) => {
+                            this.onScanSuccess(decodedText);
+                        },
+                        (errorMessage) => {
+                            // ignore parsing errors
+                        }
+                    );
+                    
+                    // Sembunyikan loading jika berhasil start
+                    document.getElementById('camera-loading').classList.add('hidden');
+                    
+                } catch (err) {
+                    console.error("Camera start failed", err);
+                    alert("Gagal membuka kamera: " + err);
+                    this.stopScanner();
+                }
             }
 
-            stopScanner() {
+            async stopScanner() {
                 const modal = document.getElementById('modal-scanner');
                 modal.classList.add('hidden');
-                
-                if (this.html5QrcodeScanner) {
-                    this.html5QrcodeScanner.clear().catch(error => {
-                        console.error("Failed to clear scanner", error);
-                    });
+                document.getElementById('camera-loading').classList.remove('hidden'); // Reset loading state
+
+                if (this.html5QrCode && this.html5QrCode.isScanning) {
+                    try {
+                        await this.html5QrCode.stop();
+                        // Jangan clear() instancenya agar bisa direuse, cukup stop
+                    } catch(e) { console.error("Stop failed", e); }
                 }
             }
 
             onScanSuccess(decodedText) {
-                // Hentikan scanner
                 this.stopScanner();
-                
-                // Isi input dengan hasil scan
                 const tokenInput = document.getElementById('token-input');
                 if (tokenInput) {
                     tokenInput.value = decodedText;
@@ -286,11 +299,8 @@
                     if (!configSnap.exists()) throw new Error("Sistem Piket belum aktif.");
                     
                     const { currentToken, lateThreshold } = configSnap.data();
-                    
-                    // Validasi Token
                     if (tokenVal !== currentToken) throw new Error("Kode Salah / Kedaluwarsa!");
 
-                    // Logika Waktu Dinamis
                     const now = new Date();
                     const threshold = lateThreshold || "07:00"; 
                     const [thHour, thMin] = threshold.split(':').map(Number);
@@ -313,7 +323,6 @@
                         msgBox.innerText = "Berhasil!";
                         msgBox.className = "p-3 bg-green-50 text-green-600 rounded-lg block";
                     }
-                    // Beri delay sedikit agar user lihat pesan sukses sebelum refresh
                     setTimeout(() => this.renderMain(), 1500);
 
                 } catch (err) {
