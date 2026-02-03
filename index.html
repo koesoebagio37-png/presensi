@@ -17,7 +17,10 @@
 <body class="bg-slate-50 text-slate-800 min-h-screen pb-20">
 
     <div id="loading-screen" class="fixed inset-0 bg-white z-[100] flex items-center justify-center">
-        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <div class="flex flex-col items-center">
+            <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-2"></div>
+            <p class="text-xs text-slate-500">Menghubungkan ke sistem...</p>
+        </div>
     </div>
 
     <!-- 1. LOGIN / INPUT NIS -->
@@ -52,12 +55,12 @@
                     <p id="display-nis" class="text-xs font-mono text-slate-400">...</p>
                 </div>
                 <div class="flex gap-2">
-                    <div id="status-badge" class="px-3 py-1 bg-slate-100 text-slate-500 text-[10px] font-bold rounded-full uppercase tracking-wider">Offline</div>
+                    <div id="status-badge" class="px-3 py-1 bg-green-100 text-green-600 text-[10px] font-bold rounded-full uppercase tracking-wider">Terhubung</div>
                 </div>
             </div>
         </header>
 
-        <!-- PAGE: HOME (CHECK-IN) -->
+        <!-- HALAMAN: BERANDA (CHECK-IN) -->
         <div id="page-home" class="page active p-6 max-w-md mx-auto space-y-6">
             <div id="attendance-status-card" class="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 text-center space-y-4">
                 <div id="status-icon" class="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto text-3xl">
@@ -74,7 +77,7 @@
             </div>
         </div>
 
-        <!-- PAGE: PERMIT (IZIN/SAKIT) -->
+        <!-- HALAMAN: IZIN (IZIN/SAKIT) -->
         <div id="page-permit" class="page hidden p-6 max-w-md mx-auto space-y-6">
             <div class="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 space-y-6">
                 <h3 class="font-bold text-lg flex items-center gap-2"><i class="ph ph-file-text text-blue-600"></i> Pengajuan Izin Global</h3>
@@ -102,12 +105,12 @@
                         </label>
                     </div>
                     <button onclick="studentApp.submitPermit()" id="btn-submit-permit" class="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-blue-200">KIRIM IZIN GLOBAL</button>
-                    <p class="text-[10px] text-slate-400 italic text-center">*Izin global akan otomatis terdata di seluruh mata pelajaran hari ini.</p>
+                    <p class="text-[10px] text-slate-400 italic text-center">*Izin global otomatis terdata di seluruh mapel hari ini.</p>
                 </div>
             </div>
         </div>
 
-        <!-- PAGE: PROFILE -->
+        <!-- HALAMAN: PROFIL -->
         <div id="page-profile" class="page hidden p-6 max-w-md mx-auto">
             <div class="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 text-center">
                 <div class="w-24 h-24 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-4 text-4xl">
@@ -119,7 +122,7 @@
             </div>
         </div>
 
-        <!-- BOTTOM NAV -->
+        <!-- MENU NAVIGASI BAWAH -->
         <nav class="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-100 flex justify-around py-3 px-6 z-50">
             <button onclick="studentApp.switchPage('home')" class="nav-item active flex flex-col items-center gap-1">
                 <i class="ph ph-house text-2xl"></i>
@@ -138,19 +141,12 @@
 
     <script type="module">
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js';
-        import { getAuth, signInAnonymously, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js';
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js';
         import { getFirestore, doc, setDoc, getDoc, serverTimestamp } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
 
-        // MENGGUNAKAN KONFIGURASI PROJECT MAPEL (Master)
-        const firebaseConfig = {
-            apiKey: "AIzaSyAwIwimlyrE4qQqYa2gA8Pfygd59USsveQ",
-            authDomain: "aplikasi-ulangan-01.firebaseapp.com",
-            projectId: "aplikasi-ulangan-01",
-            storageBucket: "aplikasi-ulangan-01.firebasestorage.app",
-            messagingSenderId: "409085062439",
-            appId: "1:409085062439:web:280589d1a3e12e7b980d02",
-        };
-        const appId = 'presensi-sekolah-khusus'; // Tetap gunakan ID unik untuk koleksi Piket
+        // Inisialisasi Firebase menggunakan variabel global lingkungan Canvas
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
@@ -161,19 +157,33 @@
                 this.nis = localStorage.getItem('student_nis') || '';
                 this.permitType = 's';
                 this.studentData = null;
+                this.user = null; // Melacak user auth
+
+                this.initAuth();
 
                 onAuthStateChanged(auth, (user) => {
+                    this.user = user;
                     if (user) {
                         document.getElementById('loading-screen').style.display = 'none';
                         if (this.nis) this.initSession();
                         else this.showView('view-login');
-                    } else {
-                        signInAnonymously(auth);
                     }
                 });
 
-                // File preview listener
                 document.getElementById('permit-file').addEventListener('change', (e) => this.handleFile(e));
+            }
+
+            // ATURAN 3: Autentikasi harus diselesaikan terlebih dahulu
+            async initAuth() {
+                try {
+                    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                        await signInWithCustomToken(auth, __initial_auth_token);
+                    } else {
+                        await signInAnonymously(auth);
+                    }
+                } catch (error) {
+                    console.error("Kesalahan Autentikasi:", error);
+                }
             }
 
             async initSession() {
@@ -185,14 +195,18 @@
             showView(id) {
                 document.getElementById('view-login').style.display = 'none';
                 document.getElementById('main-app').style.display = 'none';
-                document.getElementById(id).style.display = 'flex';
-                if(id === 'main-app') document.getElementById(id).style.display = 'block';
+                if (id === 'main-app') {
+                    document.getElementById(id).style.display = 'block';
+                } else {
+                    document.getElementById(id).style.display = 'flex';
+                }
             }
 
             async loadStudentInfo() {
+                if (!this.user) return;
                 try {
-                    // MEMBACA DARI DATABASE UTAMA (Mapel)
-                    const studentRef = doc(db, 'siswa', this.nis);
+                    // ATURAN 1: Jalur folder harus /artifacts/{appId}/public/data/{collection}
+                    const studentRef = doc(db, 'artifacts', appId, 'public', 'data', 'siswa', this.nis);
                     const snap = await getDoc(studentRef);
                     if (snap.exists()) {
                         this.studentData = snap.data();
@@ -201,28 +215,35 @@
                         document.getElementById('profile-name').innerText = this.studentData.nama;
                         document.getElementById('profile-nis').innerText = "NIS: " + this.nis;
                     } else {
-                        alert("NIS tidak terdaftar di database utama.");
+                        alert("NIS tidak terdaftar. Pastikan data siswa sudah ada di folder /artifacts.");
                         this.logout();
                     }
-                } catch (e) { console.error(e); }
+                } catch (e) { 
+                    console.error("Gagal memuat profil:", e);
+                }
             }
 
             async checkTodayAttendance() {
+                if (!this.user) return;
                 const today = new Date().toISOString().split('T')[0];
                 const docId = `${today}_${this.nis}`;
                 
-                // Cek Absen Piket
-                const piketRef = doc(db, 'artifacts', appId, 'public', 'data', 'attendance', docId);
-                const snapPiket = await getDoc(piketRef);
+                try {
+                    // Cek Absen Piket (Jalur Public Data)
+                    const piketRef = doc(db, 'artifacts', appId, 'public', 'data', 'attendance', docId);
+                    const snapPiket = await getDoc(piketRef);
 
-                // Cek Izin Global
-                const izinRef = doc(db, 'izin_global', docId);
-                const snapIzin = await getDoc(izinRef);
+                    // Cek Izin Global (Jalur Public Data)
+                    const izinRef = doc(db, 'artifacts', appId, 'public', 'data', 'izin_global', docId);
+                    const snapIzin = await getDoc(izinRef);
 
-                if (snapPiket.exists()) {
-                    this.setAttendanceUI(snapPiket.data().status);
-                } else if (snapIzin.exists()) {
-                    this.setAttendanceUI(snapIzin.data().tipe === 's' ? 'Sakit' : 'Izin');
+                    if (snapPiket.exists()) {
+                        this.setAttendanceUI(snapPiket.data().status);
+                    } else if (snapIzin.exists()) {
+                        this.setAttendanceUI(snapIzin.data().tipe === 's' ? 'Sakit' : 'Izin');
+                    }
+                } catch (e) {
+                    console.error("Gagal cek kehadiran:", e);
                 }
             }
 
@@ -234,10 +255,10 @@
                 const icon = document.getElementById('status-icon');
 
                 form.classList.add('hidden');
-                title.innerText = "Selesai!";
-                desc.innerText = `Anda terdata: ${status} pada hari ini.`;
+                title.innerText = "Tercatat!";
+                desc.innerText = `Status Anda: ${status} hari ini.`;
                 
-                if(status === 'Tepat Waktu' || status === 'Hadir') {
+                if (status === 'Tepat Waktu' || status === 'Hadir') {
                     card.className = "bg-emerald-500 p-8 rounded-3xl shadow-lg text-white text-center space-y-4";
                     icon.className = "w-16 h-16 bg-white/20 text-white rounded-full flex items-center justify-center mx-auto text-3xl";
                     icon.innerHTML = '<i class="ph ph-check-circle"></i>';
@@ -250,22 +271,23 @@
 
             async checkIn(e) {
                 e.preventDefault();
+                if (!this.user) return;
+                
                 const token = document.getElementById('token-input').value.toUpperCase();
                 const btn = document.getElementById('btn-checkin');
                 if (token.length < 4) return;
 
                 btn.disabled = true;
-                btn.innerText = "Memproses...";
+                btn.innerText = "Memverifikasi...";
 
                 try {
-                    // Ambil config dari project Ujian Online (Tempat Admin Piket berada)
                     const sessionRef = doc(db, 'artifacts', appId, 'public', 'data', 'config', 'session');
                     const snap = await getDoc(sessionRef);
                     
-                    if (!snap.exists()) throw new Error("Sistem belum aktif.");
+                    if (!snap.exists()) throw new Error("Sistem Piket belum aktif.");
                     const { currentToken, lateThreshold } = snap.data();
 
-                    if (token !== currentToken) throw new Error("Token salah atau kadaluarsa!");
+                    if (token !== currentToken) throw new Error("Kode Token salah!");
 
                     const now = new Date();
                     const [h, m] = (lateThreshold || "07:00").split(':').map(Number);
@@ -273,7 +295,9 @@
                     const status = now > limit ? 'Terlambat' : 'Tepat Waktu';
 
                     const today = now.toISOString().split('T')[0];
-                    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'attendance', `${today}_${this.nis}`), {
+                    const attendanceRef = doc(db, 'artifacts', appId, 'public', 'data', 'attendance', `${today}_${this.nis}`);
+                    
+                    await setDoc(attendanceRef, {
                         nis: this.nis,
                         nama: this.studentData.nama,
                         kelas: this.studentData.kelas,
@@ -309,11 +333,13 @@
             }
 
             async submitPermit() {
+                if (!this.user) return;
+
                 const reason = document.getElementById('permit-reason').value.trim();
                 const img = document.getElementById('permit-preview').src;
                 const btn = document.getElementById('btn-submit-permit');
 
-                if (!reason || !img) { alert("Lengkapi alasan dan foto bukti!"); return; }
+                if (!reason || !img) { alert("Harap isi alasan dan lampirkan foto bukti!"); return; }
 
                 btn.disabled = true;
                 btn.innerText = "Mengirim...";
@@ -322,8 +348,10 @@
                     const today = new Date().toISOString().split('T')[0];
                     const docId = `${today}_${this.nis}`;
 
-                    // SIMPAN KE IZIN GLOBAL
-                    await setDoc(doc(db, 'izin_global', docId), {
+                    // Menyimpan izin ke jalur artifacts
+                    const permitRef = doc(db, 'artifacts', appId, 'public', 'data', 'izin_global', docId);
+                    
+                    await setDoc(permitRef, {
                         nis: this.nis,
                         nama: this.studentData.nama,
                         kelas: this.studentData.kelas,
@@ -333,11 +361,11 @@
                         timestamp: serverTimestamp()
                     });
 
-                    alert("Izin Berhasil Dikirim!");
+                    alert("Laporan Izin Berhasil Dikirim!");
                     this.switchPage('home');
                     this.setAttendanceUI(this.permitType === 's' ? 'Sakit' : 'Izin');
                 } catch (e) {
-                    alert("Gagal: " + e.message);
+                    alert("Gagal mengirim laporan: " + e.message);
                     btn.disabled = false;
                     btn.innerText = "KIRIM IZIN GLOBAL";
                 }
@@ -347,7 +375,8 @@
                 document.querySelectorAll('.page').forEach(p => p.classList.add('hidden'));
                 document.getElementById('page-' + id).classList.remove('hidden');
                 document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-                event.currentTarget.classList.add('active');
+                const btn = document.querySelector(`button[onclick="studentApp.switchPage('${id}')"]`);
+                if (btn) btn.classList.add('active');
             }
 
             saveNis(e) {
