@@ -12,6 +12,8 @@
         .view-section.active { display: flex; }
         .nav-item.active { color: #2563eb; }
         .nav-item.active i { font-weight: bold; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-in { animation: fadeIn 0.3s ease-out forwards; }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen pb-20">
@@ -25,7 +27,7 @@
 
     <!-- 1. LOGIN / INPUT NIS -->
     <div id="view-login" class="view-section flex-col items-center justify-center min-h-screen p-4">
-        <div class="w-full max-w-md bg-white rounded-3xl shadow-xl p-8 border border-slate-100">
+        <div class="w-full max-w-md bg-white rounded-3xl shadow-xl p-8 border border-slate-100 animate-in">
             <div class="text-center mb-8">
                 <div class="w-20 h-20 bg-blue-50 rounded-2xl flex items-center justify-center mx-auto mb-4 text-blue-600">
                     <i class="ph ph-student text-5xl"></i>
@@ -35,10 +37,14 @@
             </div>
             <form onsubmit="studentApp.saveNis(event)" class="space-y-6">
                 <div>
-                    <input type="text" id="input-nis" placeholder="NIS Anda"
+                    <input type="text" id="input-nis" placeholder="Contoh: 2122.01.001"
                         class="w-full text-center text-2xl font-mono tracking-widest p-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-blue-100 focus:border-blue-500 outline-none transition-all">
+                    <div id="login-error-msg" class="hidden mt-3 p-3 bg-red-50 border border-red-100 rounded-xl">
+                        <p class="text-center text-red-600 text-xs font-bold">NIS tidak ditemukan di database sekolah.</p>
+                        <p class="text-center text-red-400 text-[10px] mt-1 italic">Pastikan Admin sudah mengimpor data siswa ke sistem ini.</p>
+                    </div>
                 </div>
-                <button type="submit" class="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold text-lg hover:bg-blue-700 shadow-lg shadow-blue-200 transition transform active:scale-95">
+                <button type="submit" id="btn-login-submit" class="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold text-lg hover:bg-blue-700 shadow-lg shadow-blue-200 transition transform active:scale-95">
                     Masuk Sekarang
                 </button>
             </form>
@@ -60,14 +66,14 @@
             </div>
         </header>
 
-        <!-- HALAMAN: BERANDA (CHECK-IN) -->
+        <!-- HALAMAN: BERANDA -->
         <div id="page-home" class="page active p-6 max-w-md mx-auto space-y-6">
             <div id="attendance-status-card" class="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 text-center space-y-4">
                 <div id="status-icon" class="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto text-3xl">
                     <i class="ph ph-qr-code"></i>
                 </div>
                 <h3 id="status-title" class="text-xl font-bold">Siap Presensi</h3>
-                <p id="status-desc" class="text-slate-500 text-sm">Lihat kode token pada layar monitor piket sekolah.</p>
+                <p id="status-desc" class="text-slate-500 text-sm">Masukkan token dari monitor piket.</p>
                 
                 <form id="form-token" onsubmit="studentApp.checkIn(event)" class="pt-4 space-y-4">
                     <input type="tel" id="token-input" maxlength="4" placeholder="----" 
@@ -77,7 +83,7 @@
             </div>
         </div>
 
-        <!-- HALAMAN: IZIN (IZIN/SAKIT) -->
+        <!-- HALAMAN: IZIN -->
         <div id="page-permit" class="page hidden p-6 max-w-md mx-auto space-y-6">
             <div class="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 space-y-6">
                 <h3 class="font-bold text-lg flex items-center gap-2"><i class="ph ph-file-text text-blue-600"></i> Pengajuan Izin Global</h3>
@@ -105,7 +111,6 @@
                         </label>
                     </div>
                     <button onclick="studentApp.submitPermit()" id="btn-submit-permit" class="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-blue-200">KIRIM IZIN GLOBAL</button>
-                    <p class="text-[10px] text-slate-400 italic text-center">*Izin global otomatis terdata di seluruh mapel hari ini.</p>
                 </div>
             </div>
         </div>
@@ -144,9 +149,9 @@
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js';
         import { getFirestore, doc, setDoc, getDoc, serverTimestamp } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
 
-        // Inisialisasi Firebase menggunakan variabel global lingkungan Canvas
+        // MENGGUNAKAN ID APLIKASI YANG SAMA UNTUK SEMUA FILE
         const firebaseConfig = JSON.parse(__firebase_config);
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const appId = 'presensi-sekolah-terintegrasi'; 
 
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
@@ -157,7 +162,7 @@
                 this.nis = localStorage.getItem('student_nis') || '';
                 this.permitType = 's';
                 this.studentData = null;
-                this.user = null; // Melacak user auth
+                this.user = null;
 
                 this.initAuth();
 
@@ -173,7 +178,6 @@
                 document.getElementById('permit-file').addEventListener('change', (e) => this.handleFile(e));
             }
 
-            // ATURAN 3: Autentikasi harus diselesaikan terlebih dahulu
             async initAuth() {
                 try {
                     if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
@@ -181,15 +185,18 @@
                     } else {
                         await signInAnonymously(auth);
                     }
-                } catch (error) {
-                    console.error("Kesalahan Autentikasi:", error);
-                }
+                } catch (error) { console.error(error); }
             }
 
             async initSession() {
-                this.showView('main-app');
-                await this.loadStudentInfo();
-                this.checkTodayAttendance();
+                const success = await this.loadStudentInfo();
+                if (success) {
+                    this.showView('main-app');
+                    this.checkTodayAttendance();
+                } else {
+                    this.logout(false);
+                    this.showView('view-login');
+                }
             }
 
             showView(id) {
@@ -203,23 +210,24 @@
             }
 
             async loadStudentInfo() {
-                if (!this.user) return;
+                if (!this.user || !this.nis) return false;
                 try {
-                    // ATURAN 1: Jalur folder harus /artifacts/{appId}/public/data/{collection}
+                    // MENCARI DI JALUR ARTIFACTS YANG DISATUKAN
                     const studentRef = doc(db, 'artifacts', appId, 'public', 'data', 'siswa', this.nis);
                     const snap = await getDoc(studentRef);
+                    
                     if (snap.exists()) {
                         this.studentData = snap.data();
                         document.getElementById('display-name').innerText = this.studentData.nama;
                         document.getElementById('display-nis').innerText = "NIS: " + this.nis;
                         document.getElementById('profile-name').innerText = this.studentData.nama;
                         document.getElementById('profile-nis').innerText = "NIS: " + this.nis;
-                    } else {
-                        alert("NIS tidak terdaftar. Pastikan data siswa sudah ada di folder /artifacts.");
-                        this.logout();
+                        return true;
                     }
+                    return false;
                 } catch (e) { 
-                    console.error("Gagal memuat profil:", e);
+                    console.error(e);
+                    return false;
                 }
             }
 
@@ -229,11 +237,9 @@
                 const docId = `${today}_${this.nis}`;
                 
                 try {
-                    // Cek Absen Piket (Jalur Public Data)
                     const piketRef = doc(db, 'artifacts', appId, 'public', 'data', 'attendance', docId);
                     const snapPiket = await getDoc(piketRef);
 
-                    // Cek Izin Global (Jalur Public Data)
                     const izinRef = doc(db, 'artifacts', appId, 'public', 'data', 'izin_global', docId);
                     const snapIzin = await getDoc(izinRef);
 
@@ -242,9 +248,7 @@
                     } else if (snapIzin.exists()) {
                         this.setAttendanceUI(snapIzin.data().tipe === 's' ? 'Sakit' : 'Izin');
                     }
-                } catch (e) {
-                    console.error("Gagal cek kehadiran:", e);
-                }
+                } catch (e) { console.error(e); }
             }
 
             setAttendanceUI(status) {
@@ -259,23 +263,19 @@
                 desc.innerText = `Status Anda: ${status} hari ini.`;
                 
                 if (status === 'Tepat Waktu' || status === 'Hadir') {
-                    card.className = "bg-emerald-500 p-8 rounded-3xl shadow-lg text-white text-center space-y-4";
-                    icon.className = "w-16 h-16 bg-white/20 text-white rounded-full flex items-center justify-center mx-auto text-3xl";
+                    card.className = "bg-emerald-500 p-8 rounded-3xl shadow-lg text-white text-center space-y-4 animate-in";
                     icon.innerHTML = '<i class="ph ph-check-circle"></i>';
                 } else {
-                    card.className = "bg-orange-500 p-8 rounded-3xl shadow-lg text-white text-center space-y-4";
-                    icon.className = "w-16 h-16 bg-white/20 text-white rounded-full flex items-center justify-center mx-auto text-3xl";
+                    card.className = "bg-orange-500 p-8 rounded-3xl shadow-lg text-white text-center space-y-4 animate-in";
                     icon.innerHTML = '<i class="ph ph-info"></i>';
                 }
             }
 
-            async checkIn(e) {
-                e.preventDefault();
-                if (!this.user) return;
-                
+            async checkIn(event) {
+                event.preventDefault();
                 const token = document.getElementById('token-input').value.toUpperCase();
                 const btn = document.getElementById('btn-checkin');
-                if (token.length < 4) return;
+                if (!this.user || token.length < 4) return;
 
                 btn.disabled = true;
                 btn.innerText = "Memverifikasi...";
@@ -287,7 +287,7 @@
                     if (!snap.exists()) throw new Error("Sistem Piket belum aktif.");
                     const { currentToken, lateThreshold } = snap.data();
 
-                    if (token !== currentToken) throw new Error("Kode Token salah!");
+                    if (token !== currentToken) throw new Error("Token salah!");
 
                     const now = new Date();
                     const [h, m] = (lateThreshold || "07:00").split(':').map(Number);
@@ -295,9 +295,7 @@
                     const status = now > limit ? 'Terlambat' : 'Tepat Waktu';
 
                     const today = now.toISOString().split('T')[0];
-                    const attendanceRef = doc(db, 'artifacts', appId, 'public', 'data', 'attendance', `${today}_${this.nis}`);
-                    
-                    await setDoc(attendanceRef, {
+                    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'attendance', `${today}_${this.nis}`), {
                         nis: this.nis,
                         nama: this.studentData.nama,
                         kelas: this.studentData.kelas,
@@ -333,13 +331,11 @@
             }
 
             async submitPermit() {
-                if (!this.user) return;
-
                 const reason = document.getElementById('permit-reason').value.trim();
                 const img = document.getElementById('permit-preview').src;
                 const btn = document.getElementById('btn-submit-permit');
 
-                if (!reason || !img) { alert("Harap isi alasan dan lampirkan foto bukti!"); return; }
+                if (!this.user || !reason || !img) { alert("Lengkapi alasan dan foto bukti!"); return; }
 
                 btn.disabled = true;
                 btn.innerText = "Mengirim...";
@@ -347,11 +343,7 @@
                 try {
                     const today = new Date().toISOString().split('T')[0];
                     const docId = `${today}_${this.nis}`;
-
-                    // Menyimpan izin ke jalur artifacts
-                    const permitRef = doc(db, 'artifacts', appId, 'public', 'data', 'izin_global', docId);
-                    
-                    await setDoc(permitRef, {
+                    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'izin_global', docId), {
                         nis: this.nis,
                         nama: this.studentData.nama,
                         kelas: this.studentData.kelas,
@@ -361,11 +353,11 @@
                         timestamp: serverTimestamp()
                     });
 
-                    alert("Laporan Izin Berhasil Dikirim!");
+                    alert("Izin Berhasil Dikirim!");
                     this.switchPage('home');
-                    this.setAttendanceUI(this.permitType === 's' ? 'Sakit' : 'Izin');
+                    this.checkTodayAttendance();
                 } catch (e) {
-                    alert("Gagal mengirim laporan: " + e.message);
+                    alert("Gagal: " + e.message);
                     btn.disabled = false;
                     btn.innerText = "KIRIM IZIN GLOBAL";
                 }
@@ -375,23 +367,48 @@
                 document.querySelectorAll('.page').forEach(p => p.classList.add('hidden'));
                 document.getElementById('page-' + id).classList.remove('hidden');
                 document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-                const btn = document.querySelector(`button[onclick="studentApp.switchPage('${id}')"]`);
-                if (btn) btn.classList.add('active');
             }
 
-            saveNis(e) {
+            async saveNis(e) {
                 e.preventDefault();
-                const nis = document.getElementById('input-nis').value.trim();
-                if (nis) {
-                    localStorage.setItem('student_nis', nis);
-                    this.nis = nis;
-                    this.initSession();
+                const input = document.getElementById('input-nis');
+                const errorBox = document.getElementById('login-error-msg');
+                const btn = document.getElementById('btn-login-submit');
+                const nis = input.value.trim();
+                
+                if (!nis) return;
+                
+                errorBox.classList.add('hidden');
+                btn.disabled = true;
+                btn.innerText = "Mengecek NIS...";
+
+                try {
+                    // Validasi ke jalur yang benar
+                    const studentRef = doc(db, 'artifacts', appId, 'public', 'data', 'siswa', nis);
+                    const snap = await getDoc(studentRef);
+                    
+                    if (snap.exists()) {
+                        localStorage.setItem('student_nis', nis);
+                        this.nis = nis;
+                        this.initSession();
+                    } else {
+                        errorBox.classList.remove('hidden');
+                        btn.disabled = false;
+                        btn.innerText = "Masuk Sekarang";
+                    }
+                } catch (err) {
+                    console.error(err);
+                    alert("Gagal memvalidasi NIS. Hubungi Admin.");
+                    btn.disabled = false;
+                    btn.innerText = "Masuk Sekarang";
                 }
             }
 
-            logout() {
+            logout(reload = true) {
                 localStorage.removeItem('student_nis');
-                location.reload();
+                this.nis = '';
+                this.studentData = null;
+                if (reload) location.reload();
             }
         }
         window.studentApp = new StudentApp();
