@@ -105,6 +105,7 @@
                             </div>
                             <img id="permit-preview" class="absolute inset-0 w-full h-full object-cover hidden">
                         </label>
+                        <p class="text-[10px] text-slate-400 mt-1 italic">*Gambar akan otomatis dikompres</p>
                     </div>
                     <button onclick="studentApp.submitPermit()" id="btn-submit-permit" class="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold shadow-lg shadow-blue-200">KIRIM IZIN GLOBAL</button>
                 </div>
@@ -171,6 +172,7 @@
                 this.permitType = 's';
                 this.studentData = null;
                 this.user = null;
+                this.permitImageBase64 = null; // Store compressed image
 
                 setTimeout(() => {
                     const loader = document.getElementById('loading-screen');
@@ -258,7 +260,6 @@
                 const docId = `${today}_${this.nis}`;
                 
                 try {
-                    // CEK KOLEKSI DI ARTIFACTS
                     const piketRef = doc(db, PATH_ATTENDANCE, docId);
                     const snapPiket = await getDoc(piketRef);
 
@@ -303,7 +304,6 @@
                 btn.innerText = "Memverifikasi...";
 
                 try {
-                    // Read config from ARTIFACTS
                     const sessionRef = doc(db, PATH_CONFIG, 'session');
                     const snap = await getDoc(sessionRef);
                     
@@ -319,7 +319,6 @@
 
                     const today = now.toISOString().split('T')[0];
                     
-                    // Write attendance to ARTIFACTS
                     await setDoc(doc(db, PATH_ATTENDANCE, `${today}_${this.nis}`), {
                         nis: this.nis,
                         nama: this.studentData.nama,
@@ -342,25 +341,77 @@
                 document.getElementById('btn-' + type).classList.add('border-blue-500', 'bg-blue-50', 'text-blue-600');
             }
 
-            handleFile(e) {
-                const file = e.target.files[0];
-                if (file) {
+            // --- IMAGE COMPRESSION FUNCTION ---
+            compressImage(file) {
+                return new Promise((resolve, reject) => {
                     const reader = new FileReader();
-                    reader.onload = (ev) => {
-                        document.getElementById('permit-preview').src = ev.target.result;
-                        document.getElementById('permit-preview').classList.remove('hidden');
-                        document.getElementById('upload-placeholder').classList.add('hidden');
+                    reader.onload = (e) => {
+                        const img = new Image();
+                        img.src = e.target.result;
+                        img.onload = () => {
+                            const canvas = document.createElement('canvas');
+                            const MAX_WIDTH = 800; // Limit lebar max
+                            const MAX_HEIGHT = 800; // Limit tinggi max
+                            let width = img.width;
+                            let height = img.height;
+
+                            if (width > height) {
+                                if (width > MAX_WIDTH) {
+                                    height *= MAX_WIDTH / width;
+                                    width = MAX_WIDTH;
+                                }
+                            } else {
+                                if (height > MAX_HEIGHT) {
+                                    width *= MAX_HEIGHT / height;
+                                    height = MAX_HEIGHT;
+                                }
+                            }
+
+                            canvas.width = width;
+                            canvas.height = height;
+                            const ctx = canvas.getContext('2d');
+                            ctx.drawImage(img, 0, 0, width, height);
+                            
+                            // Kompresi ke JPEG kualitas 0.6 (60%)
+                            const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
+                            resolve(dataUrl);
+                        };
+                        img.onerror = reject;
                     };
                     reader.readAsDataURL(file);
+                });
+            }
+
+            async handleFile(e) {
+                const file = e.target.files[0];
+                if (!file) return;
+
+                // Tampilkan loading placeholder jika perlu
+                const preview = document.getElementById('permit-preview');
+                const placeholder = document.getElementById('upload-placeholder');
+                
+                try {
+                    // Kompres gambar
+                    this.permitImageBase64 = await this.compressImage(file);
+                    
+                    // Tampilkan preview hasil kompresi
+                    preview.src = this.permitImageBase64;
+                    preview.classList.remove('hidden');
+                    placeholder.classList.add('hidden');
+                } catch (err) {
+                    console.error("Gagal kompres gambar:", err);
+                    alert("Gagal memproses gambar. Coba gambar lain.");
                 }
             }
 
             async submitPermit() {
                 const reason = document.getElementById('permit-reason').value.trim();
-                const img = document.getElementById('permit-preview').src;
                 const btn = document.getElementById('btn-submit-permit');
 
-                if (!this.user || !reason || !img) { alert("Lengkapi alasan dan foto bukti!"); return; }
+                // Gunakan gambar yang sudah dikompres
+                if (!this.user || !reason || !this.permitImageBase64) { 
+                    alert("Lengkapi alasan dan foto bukti!"); return; 
+                }
 
                 btn.disabled = true;
                 btn.innerText = "Mengirim...";
@@ -369,14 +420,13 @@
                     const today = new Date().toISOString().split('T')[0];
                     const docId = `${today}_${this.nis}`;
                     
-                    // Write IZIN to ARTIFACTS
                     await setDoc(doc(db, PATH_IZIN, docId), {
                         nis: this.nis,
                         nama: this.studentData.nama,
                         kelas: this.studentData.kelas,
                         tipe: this.permitType,
                         alasan: reason,
-                        foto: img,
+                        foto: this.permitImageBase64, // Simpan Base64 kecil
                         timestamp: serverTimestamp()
                     });
 
