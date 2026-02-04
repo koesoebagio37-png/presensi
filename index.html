@@ -18,11 +18,10 @@
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen pb-20">
 
-    <div id="loading-screen" class="fixed inset-0 bg-white z-[100] flex items-center justify-center">
-        <div class="flex flex-col items-center">
-            <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-2"></div>
-            <p class="text-xs text-slate-500">Menghubungkan ke sistem...</p>
-        </div>
+    <div id="loading-screen" class="fixed inset-0 bg-white z-[100] flex flex-col items-center justify-center transition-opacity duration-500">
+        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
+        <p class="text-sm text-slate-500 font-medium">Menghubungkan ke Database Sekolah...</p>
+        <p id="loading-timeout-msg" class="text-xs text-red-500 mt-4 hidden">Koneksi lambat... Memuat mode offline.</p>
     </div>
 
     <!-- 1. LOGIN / INPUT NIS -->
@@ -37,11 +36,10 @@
             </div>
             <form onsubmit="studentApp.saveNis(event)" class="space-y-6">
                 <div>
-                    <input type="text" id="input-nis" placeholder="Contoh: 2122.01.001"
+                    <input type="text" id="input-nis" placeholder="Contoh: 12345"
                         class="w-full text-center text-2xl font-mono tracking-widest p-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-blue-100 focus:border-blue-500 outline-none transition-all">
                     <div id="login-error-msg" class="hidden mt-3 p-3 bg-red-50 border border-red-100 rounded-xl">
-                        <p class="text-center text-red-600 text-xs font-bold">NIS tidak ditemukan di database sekolah.</p>
-                        <p class="text-center text-red-400 text-[10px] mt-1 italic">Pastikan Admin sudah mengimpor data siswa ke sistem ini.</p>
+                        <p class="text-center text-red-600 text-xs font-bold" id="error-text">NIS tidak ditemukan.</p>
                     </div>
                 </div>
                 <button type="submit" id="btn-login-submit" class="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold text-lg hover:bg-blue-700 shadow-lg shadow-blue-200 transition transform active:scale-95">
@@ -53,7 +51,6 @@
 
     <!-- MAIN APP WRAPPER -->
     <div id="main-app" class="hidden">
-        <!-- HEADER -->
         <header class="bg-white p-6 border-b border-slate-100 sticky top-0 z-40">
             <div class="flex justify-between items-center max-w-md mx-auto">
                 <div>
@@ -61,7 +58,7 @@
                     <p id="display-nis" class="text-xs font-mono text-slate-400">...</p>
                 </div>
                 <div class="flex gap-2">
-                    <div id="status-badge" class="px-3 py-1 bg-green-100 text-green-600 text-[10px] font-bold rounded-full uppercase tracking-wider">Terhubung</div>
+                    <div id="status-badge" class="px-3 py-1 bg-green-100 text-green-600 text-[10px] font-bold rounded-full uppercase tracking-wider">Online</div>
                 </div>
             </div>
         </header>
@@ -73,8 +70,7 @@
                     <i class="ph ph-qr-code"></i>
                 </div>
                 <h3 id="status-title" class="text-xl font-bold">Siap Presensi</h3>
-                <p id="status-desc" class="text-slate-500 text-sm">Masukkan token dari monitor piket.</p>
-                
+                <p id="status-desc" class="text-slate-500 text-sm">Lihat kode token pada layar monitor Admin/Piket.</p>
                 <form id="form-token" onsubmit="studentApp.checkIn(event)" class="pt-4 space-y-4">
                     <input type="tel" id="token-input" maxlength="4" placeholder="----" 
                         class="w-full text-center text-4xl font-bold font-mono tracking-[0.5em] p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-blue-500 focus:bg-white outline-none transition-all uppercase">
@@ -149,13 +145,25 @@
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js';
         import { getFirestore, doc, setDoc, getDoc, serverTimestamp } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
 
-        // MENGGUNAKAN ID APLIKASI YANG SAMA UNTUK SEMUA FILE
-        const firebaseConfig = JSON.parse(__firebase_config);
-        const appId = 'presensi-sekolah-terintegrasi'; 
+        // MENGGUNAKAN CONFIG 'APLIKASI-ULANGAN-01' (MANAJEMEN SISWA)
+        const firebaseConfig = {
+            apiKey: "AIzaSyAwIwimlyrE4qQqYa2gA8Pfygd59USsveQ",
+            authDomain: "aplikasi-ulangan-01.firebaseapp.com",
+            projectId: "aplikasi-ulangan-01",
+            storageBucket: "aplikasi-ulangan-01.firebasestorage.app",
+            messagingSenderId: "409085062439",
+            appId: "1:409085062439:web:280589d1a3e12e7b980d02",
+        };
 
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
+
+        // --- PATH DEFINITIONS (HARUS SAMA DENGAN ADMIN) ---
+        const APP_ID = 'presensi-sekolah-terintegrasi'; // Fixed ID
+        const PATH_CONFIG = `artifacts/${APP_ID}/public/data/config`;
+        const PATH_ATTENDANCE = `artifacts/${APP_ID}/public/data/attendance`;
+        const PATH_IZIN = `artifacts/${APP_ID}/public/data/izin_global`;
 
         class StudentApp {
             constructor() {
@@ -163,6 +171,19 @@
                 this.permitType = 's';
                 this.studentData = null;
                 this.user = null;
+
+                setTimeout(() => {
+                    const loader = document.getElementById('loading-screen');
+                    if (loader && loader.style.display !== 'none') {
+                        document.getElementById('loading-timeout-msg').classList.remove('hidden');
+                        if (!this.user) {
+                            setTimeout(() => {
+                                loader.style.display = 'none';
+                                this.showView('view-login');
+                            }, 2000);
+                        }
+                    }
+                }, 5000);
 
                 this.initAuth();
 
@@ -180,12 +201,12 @@
 
             async initAuth() {
                 try {
-                    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                        await signInWithCustomToken(auth, __initial_auth_token);
-                    } else {
-                        await signInAnonymously(auth);
-                    }
-                } catch (error) { console.error(error); }
+                    await signInAnonymously(auth);
+                } catch (error) { 
+                    console.error("Auth Error:", error);
+                    document.getElementById('loading-timeout-msg').innerText = "Gagal koneksi server: " + error.message;
+                    document.getElementById('loading-timeout-msg').classList.remove('hidden');
+                }
             }
 
             async initSession() {
@@ -212,8 +233,8 @@
             async loadStudentInfo() {
                 if (!this.user || !this.nis) return false;
                 try {
-                    // MENCARI DI JALUR ARTIFACTS YANG DISATUKAN
-                    const studentRef = doc(db, 'artifacts', appId, 'public', 'data', 'siswa', this.nis);
+                    // CEK KE KOLEKSI SISWA DI DB PUSAT (ROOT)
+                    const studentRef = doc(db, 'siswa', this.nis);
                     const snap = await getDoc(studentRef);
                     
                     if (snap.exists()) {
@@ -237,10 +258,11 @@
                 const docId = `${today}_${this.nis}`;
                 
                 try {
-                    const piketRef = doc(db, 'artifacts', appId, 'public', 'data', 'attendance', docId);
+                    // CEK KOLEKSI DI ARTIFACTS
+                    const piketRef = doc(db, PATH_ATTENDANCE, docId);
                     const snapPiket = await getDoc(piketRef);
 
-                    const izinRef = doc(db, 'artifacts', appId, 'public', 'data', 'izin_global', docId);
+                    const izinRef = doc(db, PATH_IZIN, docId);
                     const snapIzin = await getDoc(izinRef);
 
                     if (snapPiket.exists()) {
@@ -281,13 +303,14 @@
                 btn.innerText = "Memverifikasi...";
 
                 try {
-                    const sessionRef = doc(db, 'artifacts', appId, 'public', 'data', 'config', 'session');
+                    // Read config from ARTIFACTS
+                    const sessionRef = doc(db, PATH_CONFIG, 'session');
                     const snap = await getDoc(sessionRef);
                     
                     if (!snap.exists()) throw new Error("Sistem Piket belum aktif.");
                     const { currentToken, lateThreshold } = snap.data();
 
-                    if (token !== currentToken) throw new Error("Token salah!");
+                    if (token !== currentToken) throw new Error("Token salah! Lihat monitor.");
 
                     const now = new Date();
                     const [h, m] = (lateThreshold || "07:00").split(':').map(Number);
@@ -295,7 +318,9 @@
                     const status = now > limit ? 'Terlambat' : 'Tepat Waktu';
 
                     const today = now.toISOString().split('T')[0];
-                    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'attendance', `${today}_${this.nis}`), {
+                    
+                    // Write attendance to ARTIFACTS
+                    await setDoc(doc(db, PATH_ATTENDANCE, `${today}_${this.nis}`), {
                         nis: this.nis,
                         nama: this.studentData.nama,
                         kelas: this.studentData.kelas,
@@ -343,7 +368,9 @@
                 try {
                     const today = new Date().toISOString().split('T')[0];
                     const docId = `${today}_${this.nis}`;
-                    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'izin_global', docId), {
+                    
+                    // Write IZIN to ARTIFACTS
+                    await setDoc(doc(db, PATH_IZIN, docId), {
                         nis: this.nis,
                         nama: this.studentData.nama,
                         kelas: this.studentData.kelas,
@@ -373,6 +400,7 @@
                 e.preventDefault();
                 const input = document.getElementById('input-nis');
                 const errorBox = document.getElementById('login-error-msg');
+                const errorText = document.getElementById('error-text');
                 const btn = document.getElementById('btn-login-submit');
                 const nis = input.value.trim();
                 
@@ -383,8 +411,7 @@
                 btn.innerText = "Mengecek NIS...";
 
                 try {
-                    // Validasi ke jalur yang benar
-                    const studentRef = doc(db, 'artifacts', appId, 'public', 'data', 'siswa', nis);
+                    const studentRef = doc(db, 'siswa', nis);
                     const snap = await getDoc(studentRef);
                     
                     if (snap.exists()) {
@@ -392,13 +419,15 @@
                         this.nis = nis;
                         this.initSession();
                     } else {
+                        errorText.innerText = "NIS tidak ditemukan. Hubungi Admin.";
                         errorBox.classList.remove('hidden');
                         btn.disabled = false;
                         btn.innerText = "Masuk Sekarang";
                     }
                 } catch (err) {
                     console.error(err);
-                    alert("Gagal memvalidasi NIS. Hubungi Admin.");
+                    errorText.innerText = "Koneksi Gagal. Coba lagi.";
+                    errorBox.classList.remove('hidden');
                     btn.disabled = false;
                     btn.innerText = "Masuk Sekarang";
                 }
