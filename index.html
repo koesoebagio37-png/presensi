@@ -36,8 +36,10 @@
             </div>
             <form onsubmit="studentApp.saveNis(event)" class="space-y-6">
                 <div>
-                    <input type="text" id="input-nis" placeholder="Contoh: 12345"
+                    <!-- UPDATED: type="tel" dan oninput="formatNIS" -->
+                    <input type="tel" id="input-nis" placeholder="Contoh: 2425.10.001" oninput="studentApp.formatNIS(this)"
                         class="w-full text-center text-2xl font-mono tracking-widest p-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-blue-100 focus:border-blue-500 outline-none transition-all">
+                    <p class="text-[10px] text-slate-400 mt-2 text-center">*Cukup ketik angka, titik otomatis muncul.</p>
                     <div id="login-error-msg" class="hidden mt-3 p-3 bg-red-50 border border-red-100 rounded-xl">
                         <p class="text-center text-red-600 text-xs font-bold" id="error-text">NIS tidak ditemukan.</p>
                     </div>
@@ -200,6 +202,25 @@
 
                 document.getElementById('permit-file').addEventListener('change', (e) => this.handleFile(e));
             }
+
+            // --- FITUR BARU: AUTO FORMAT NIS (UNTUK HP TANPA TITIK) ---
+            formatNIS(input) {
+                // 1. Hapus semua karakter selain angka
+                let val = input.value.replace(/\D/g, '');
+                
+                // 2. Tambahkan titik secara otomatis
+                // Format: XXXX.XX.XXX (4 digit, titik, 2 digit, titik, 3 digit)
+                if (val.length > 4) {
+                    val = val.substring(0, 4) + '.' + val.substring(4);
+                }
+                if (val.length > 7) { // 4 digit + 1 titik + 2 digit = 7 chars
+                    val = val.substring(0, 7) + '.' + val.substring(7);
+                }
+                
+                // Batasi panjang maksimal (misal 9 digit angka + 2 titik = 11 karakter)
+                input.value = val;
+            }
+            // --------------------------------------------------------
 
             async initAuth() {
                 try {
