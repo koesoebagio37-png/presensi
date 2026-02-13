@@ -59,8 +59,12 @@
                     <h2 id="display-name" class="text-xl font-bold text-slate-900 truncate max-w-[200px]">...</h2>
                     <p id="display-nis" class="text-xs font-mono text-slate-400">...</p>
                 </div>
-                <div class="flex gap-2">
+                <div class="flex gap-2 items-center">
                     <div id="status-badge" class="px-3 py-1 bg-green-100 text-green-600 text-[10px] font-bold rounded-full uppercase tracking-wider">Online</div>
+                    <!-- TOMBOL LOGOUT -->
+                    <button onclick="studentApp.logout()" class="p-2 text-red-400 hover:bg-red-50 hover:text-red-600 rounded-full transition" title="Keluar">
+                        <i class="ph ph-sign-out text-xl"></i>
+                    </button>
                 </div>
             </div>
         </header>
@@ -74,8 +78,9 @@
                 <h3 id="status-title" class="text-xl font-bold">Siap Presensi</h3>
                 <p id="status-desc" class="text-slate-500 text-sm">Lihat kode token pada layar monitor Admin/Piket.</p>
                 <form id="form-token" onsubmit="studentApp.checkIn(event)" class="pt-4 space-y-4">
-                    <input type="tel" id="token-input" maxlength="4" placeholder="----" 
-                        class="w-full text-center text-4xl font-bold font-mono tracking-[0.5em] p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-blue-500 focus:bg-white outline-none transition-all uppercase">
+                    <!-- UPDATED: Maxlength 3 (3 DIGIT) -->
+                    <input type="tel" id="token-input" maxlength="3" placeholder="---" 
+                        class="w-full text-center text-5xl font-bold font-mono tracking-[0.5em] p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:border-blue-500 focus:bg-white outline-none transition-all uppercase">
                     <button type="submit" id="btn-checkin" class="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold hover:bg-blue-700 shadow-lg shadow-blue-200 transition">ABSEN MASUK</button>
                 </form>
             </div>
@@ -319,7 +324,9 @@
                 event.preventDefault();
                 const token = document.getElementById('token-input').value.toUpperCase();
                 const btn = document.getElementById('btn-checkin');
-                if (!this.user || token.length < 4) return;
+                
+                // UPDATED CHECK: Hanya butuh 3 digit
+                if (!this.user || token.length < 3) return;
 
                 btn.disabled = true;
                 btn.innerText = "Memverifikasi...";
